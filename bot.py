@@ -105,8 +105,8 @@ def process_buttons():
                 print("Error while handling button:", error)
 
     if updates:
-    last_id = max(update["update_id"] for update in updates)
-    telegram("getUpdates", {"offset": last_id + 1, "timeout": 0})
+        last_id = max(update["update_id"] for update in updates)
+        telegram("getUpdates", {"offset": last_id + 1, "timeout": 0})
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "test":
         send_deal_for_review(TEST_DEAL)
