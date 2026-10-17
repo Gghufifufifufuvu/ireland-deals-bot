@@ -5,20 +5,20 @@ import urllib.parse
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
 def send_message(text):
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-data = urllib.parse.urlencode({
-"chat_id": CHANNEL_ID,
-"text": text
-}).encode("utf-8")
-request = urllib.request.Request(url, data=data)
-with urllib.request.urlopen(request, timeout=20) as response:
-result = json.load(response)
-return result
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({
+    "chat_id": CHANNEL_ID,
+    "text": text
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=data)
+    with urllib.request.urlopen(request, timeout=20) as response:
+    result = json.load(response)
+    return result
 if __name__ == "__main__":
-message = (
-"🇮🇪 Welcome to Ireland Best Deals!\n\n"
-"🔥 Best discounts and special offers in Ireland!\n\n"
-"🛍 Follow us for new deals!"
-)
-result = send_message(message)
-print("Message sent successfully!", result["ok"])
+    message = (
+    "🇮🇪 Welcome to Ireland Best Deals!\n\n"
+    "🔥 Best discounts and special offers in Ireland!\n\n"
+    "🛍 Follow us for new deals!"
+    )
+    result = send_message(message)
+    print("Message sent successfully!", result["ok"])
