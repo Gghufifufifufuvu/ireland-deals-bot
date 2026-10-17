@@ -1,4 +1,3 @@
-
 import json
 import os
 import sys
@@ -52,7 +51,7 @@ def send_deal_for_review(deal_text):
     print("Deal sent for review:", result.get("ok"))
 
 
-def handle_button(query):
+def handle_button(query, done_messages):
     """Обрабатывает одно нажатие кнопки."""
     user_id = str(query["from"]["id"])
     message = query.get("message")
@@ -64,6 +63,12 @@ def handle_button(query):
     if action not in ("approve", "reject"):
         print("Ignored: old button", action)
         return
+
+    message_key = (message["chat"]["id"], message["message_id"])
+    if message_key in done_messages:
+        print("Ignored: repeated press on the same deal")
+        return
+    done_messages.add(message_key)
 
     deal_text = message.get("text", "").split(SEPARATOR)[0].strip()
 
@@ -78,7 +83,6 @@ def handle_button(query):
         "message_id": message["message_id"],
         "text": f"{deal_text}\n\n{SEPARATOR}\n{status}",
     })
-    telegram("answerCallbackQuery", {"callback_query_id": query["id"]})
     print(status)
 
 
@@ -92,10 +96,11 @@ def process_buttons():
     updates = result.get("result", [])
     print("New updates:", len(updates))
 
+    done_messages = set()
     for update in updates:
         if "callback_query" in update:
             try:
-                handle_button(update["callback_query"])
+                handle_button(update["callback_query"], done_messages)
             except Exception as error:
                 print("Error while handling button:", error)
 
