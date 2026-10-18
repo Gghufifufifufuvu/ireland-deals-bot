@@ -1,115 +1,120 @@
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
+
+# Секретные значения берутся из переменных окружения Render
 TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
 ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
-API = f"https://api.telegram.org/bot{TOKEN}"
-DEAL = {
-"name": "Soundcore P30i Wireless Earbuds",
-"old_price": "€49.90",
-"new_price": "€29.90",
-"discount": "40%",
-"url": "https://www.amazon.ie/dp/B0CRTN7C8C"
-}
+
+SEPARATOR = "➖➖➖➖➖➖"
+QUESTION = "Опубликовать эту скидку?"
+
+TEST_DEAL = (
+    "📱 Samsung Galaxy\n"
+    "💶 Old price: €500\n"
+    "💚 New price: €350\n"
+    "🔥 Discount: 30%"
+)
+
+
 def telegram(method, data=None):
-body = urllib.parse.urlencode(data or {}).encode("utf-8")
-request = urllib.request.Request(
-f"{API}/{method}",
-data=body
-)
-try:
-with urllib.request.urlopen(request, timeout=30) as response:
-return json.load(response)
-except Exception as error:
-print("Telegram error:", error)
-return {"ok": False}
-def deal_text():
-return (
-"🔥 TECH DEAL IRELAND 🇮🇪\n\n"
-f"🎧 {DEAL['name']}\n\n"
-f"❌ Old price: {DEAL['old_price']}\n"
-f"✅ New price: {DEAL['new_price']}\n"
-f"💰 Discount: {DEAL['discount']}\n\n"
-f"🛒 Buy here:\n{DEAL['url']}\n\n"
-"⚠️ Prices may change."
-)
-def send_for_review():
-keyboard = {
-"inline_keyboard": [[
-{"text": "✅ Опубликовать", "callback_data": "approve"},
-{"text": "❌ Отклонить", "callback_data": "reject"}
-]]
-}
-result = telegram("sendMessage", {
-"chat_id": ADMIN_CHAT_ID,
-"text": deal_text(),
-"reply_markup": json.dumps(keyboard)
-})
-print("Review:", result)
+    """Отправляет запрос в Telegram и возвращает ответ."""
+    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
+    body = urllib.parse.urlencode(data or {}).encode("utf-8")
+    request = urllib.request.Request(url, data=body)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        result = json.load(error)
+        print(f"Telegram error in {method}:", result.get("description"))
+        return result
+
+
+def send_deal_for_review(deal_text):
+    """Присылает скидку админу в личку с кнопками."""
+    text = f"{deal_text}\n\n{SEPARATOR}\n{QUESTION}"
+    buttons = {
+        "inline_keyboard": [[
+            {"text": "✅ Опубликовать", "callback_data": "approve"},
+            {"text": "❌ Отклонить", "callback_data": "reject"},
+        ]]
+    }
+    result = telegram("sendMessage", {
+        "chat_id": ADMIN_CHAT_ID,
+        "text": text,
+        "reply_markup": json.dumps(buttons),
+    })
+    print("Deal sent for review:", result.get("ok"))
+
+
+def handle_button(query, done_messages):
+    """Обрабатывает одно нажатие кнопки."""
+    user_id = str(query["from"]["id"])
+    message = query.get("message")
+    action = query.get("data")
+
+    if user_id != str(ADMIN_CHAT_ID) or not message:
+        print("Ignored: button pressed by someone else")
+        return
+    if action not in ("approve", "reject"):
+        print("Ignored: old button", action)
+        return
+
+    message_key = (message["chat"]["id"], message["message_id"])
+    if message_key in done_messages:
+        print("Ignored: repeated press on the same deal")
+        return
+    done_messages.add(message_key)
+
+    deal_text = message.get("text", "").split(SEPARATOR)[0].strip()
+
+    if action == "approve":
+        result = telegram("sendMessage", {"chat_id": CHANNEL_ID, "text": deal_text})
+        if result.get("ok"):
+            status = "✅ Опубликовано в канале"
+        else:
+            status = "⚠️ Ошибка публикации"
+    else:
+        status = "❌ Отклонено"
+
+    telegram("editMessageText", {
+        "chat_id": message["chat"]["id"],
+        "message_id": message["message_id"],
+        "text": f"{deal_text}\n\n{SEPARATOR}\n{status}",
+    })
+    print(status)
+
+
 def process_buttons():
-result = telegram("getUpdates", {"timeout": 0})
-if not result.get("ok"):
-return
-updates = result.get("result", [])
-for update in updates:
-query = update.get("callback_query")
-if not query:
-continue
-query_id = query["id"]
-action = query.get("data")
-message = query.get("message", {})
-chat_id = message.get("chat", {}).get("id")
-message_id = message.get("message_id")
-if str(chat_id) != str(ADMIN_CHAT_ID):
-telegram("answerCallbackQuery", {
-"callback_query_id": query_id,
-"text": "Нет доступа"
-})
-continue
-if action == "approve":
-published = telegram("sendMessage", {
-"chat_id": CHANNEL_ID,
-"text": deal_text()
-})
-status = (
-"✅ Опубликовано"
-if published.get("ok")
-else "⚠️ Ошибка публикации"
-)
-elif action == "reject":
-status = "❌ Отклонено"
-else:
-continue
-telegram("answerCallbackQuery", {
-"callback_query_id": query_id
-})
-telegram("editMessageReplyMarkup", {
-"chat_id": chat_id,
-"message_id": message_id,
-"reply_markup": json.dumps({"inline_keyboard": []})
-})
-telegram("sendMessage", {
-"chat_id": ADMIN_CHAT_ID,
-"text": status
-})
-if updates:
-last_id = max(update["update_id"] for update in updates)
-telegram("getUpdates", {
-"offset": last_id + 1,
+    """Забирает все нажатия кнопок, накопленные с прошлого запуска."""
+    result = telegram("getUpdates", {"timeout": 0})
+    if not result.get("ok"):
+        print("Could not get updates")
+        return
 
-            "timeout": 0
+    updates = result.get("result", [])
+    print("New updates:", len(updates))
 
-        })
+    done_messages = set()
+    for update in updates:
+        if "callback_query" in update:
+            try:
+                handle_button(update["callback_query"], done_messages)
+            except Exception as error:
+                print("Error while handling button:", error)
+
+    if updates:
+        # Сообщаем Telegram, что эти обновления обработаны
+        last_id = updates[-1]["update_id"]
+        telegram("getUpdates", {"offset": last_id + 1, "timeout": 0})
+
 
 if __name__ == "__main__":
-
     if len(sys.argv) > 1 and sys.argv[1] == "test":
-
-        send_for_review()
-
-    else:
-
-        process_buttons()
+        send_deal_for_review(TEST_DEAL)
+    process_buttons()
